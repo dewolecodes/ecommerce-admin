@@ -1,18 +1,40 @@
 import React from 'react';
 import listStaff from '@/src/actions/staff/listStaff.server';
 import inviteStaff from '@/src/actions/staff/inviteStaff.server';
+import { createServerActionClient } from '@/src/lib/supabase/server-action';
 
 export default async function TeamPage() {
-  const staff = await listStaff(100, 0);
+  // derive current user and merchant_id from session
+  const supabase = createServerActionClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const user = userData.user;
+  let merchant_id: string | null = null;
+
+  if (user) {
+    const { data: staffRow, error } = await supabase.from('staff').select('merchant_id, role').eq('auth_user_id', user.id).limit(1).single();
+    if (!error && staffRow) {
+      merchant_id = staffRow.merchant_id;
+    }
+  }
+
+  if (!merchant_id) {
+    return (
+      <div className="p-6">
+        <h1 className="text-2xl font-bold mb-4">Team</h1>
+        <p className="text-red-600">No merchant associated with your account. Ensure you are signed in as a merchant owner or admin.</p>
+      </div>
+    );
+  }
+
+  const staff = await listStaff(100, 0, merchant_id);
 
   async function handleInvite(formData: FormData) {
     'use server';
     const email = formData.get('email')?.toString();
     const role = formData.get('role')?.toString() || 'manager';
-    const merchant_id = formData.get('merchant_id')?.toString() || '';
     if (!email) throw new Error('Email required');
-    // inviteStaff will create the staff row and send the invite email
-    await inviteStaff({ merchant_id, email, role });
+    // merchant_id derived from session
+    await inviteStaff({ merchant_id: merchant_id as string, email, role });
   }
 
   return (
@@ -21,7 +43,7 @@ export default async function TeamPage() {
 
       <section className="mb-6">
         <h2 className="font-semibold">Invite staff</h2>
-        <p className="text-sm text-muted-foreground mb-2">Enter the staff email and role. Provide your merchant id (backend should derive this in production).</p>
+        <p className="text-sm text-muted-foreground mb-2">Enter the staff email and role. Merchant is derived from your session.</p>
         <form action={handleInvite} className="space-y-2">
           <div>
             <label className="block text-sm">Email</label>
@@ -35,10 +57,7 @@ export default async function TeamPage() {
               <option value="viewer">Viewer</option>
             </select>
           </div>
-          <div>
-            <label className="block text-sm">Merchant ID</label>
-            <input name="merchant_id" type="text" placeholder="merchant-id (for demo only)" className="border rounded px-2 py-1 w-80" />
-          </div>
+          {/* merchant_id removed - derived from session */}
           <div>
             <button type="submit" className="bg-blue-600 text-white px-3 py-1 rounded">Send invite</button>
           </div>
